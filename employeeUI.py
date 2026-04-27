@@ -4,6 +4,8 @@ import mysql.connector
 from datetime import datetime
 import re
 import math
+from rules import calculate_credit_score, create_connection
+
 
 # =========================
 # THEME & STYLES
@@ -19,31 +21,35 @@ THEME = {
     "border": "#DCE6F5"
 }
 
-fields = {} 
+global fields
+fields = {}
+
 
 def get_data():
-    """
-    This is the function your friend will call.
-    It returns the dictionary of all current inputs.
-    """
     try:
         return {
-            "pan": fields["PAN"].get().upper(),
-            "full_name": fields["Full Name"].get(),
+            "PAN": fields["PAN"].get().upper(),
+            "name": fields["Full Name"].get(),
             "dob": fields["DOB (DD/MM/YYYY)"].get(),
-            "age": fields["Age"].get(),
-            "dependents": fields["Dependents"].get(),
-            "loan_type": fields["Loan Type"].get(),
-            "monthly_income": int(fields["Monthly Income"].get() or 0),
-            "job_type": fields["Job Type"].get(),
-            "employment_years": fields["Years of Employment"].get(),
+
+            "status_account": fields["Status Account"].get(),
             "loan_amount": int(fields["Loan Amount"].get() or 0),
+            "bank_balance": fields["Bank Balance"].get(),
+            "years_employment": fields["Years of Employment"].get(),
+            "payment_to_income_ratio": int(fields["Payment to Income Ratio"].get()),
             "guarantor": fields["Guarantor"].get(),
+            "residence_since": int(fields["Residence Since"].get()),
             "collateral": fields["Collateral"].get(),
-            "bank_balance": int(fields["Bank Balance"].get() or 0)
+            "other_commitments": fields["Other Commitments"].get(),
+            "housing": fields["Housing"].get(),
+            "n_credits": int(fields["Number of Credits"].get()),
+            "job": fields["Job"].get(),
+            "n_guarantors": int(fields["Number of Guarantors"].get()),
+            "dependencies": int(fields["Dependencies"].get())
         }
     except Exception as e:
         return {"error": str(e)}
+
 # =========================
 # LOGIC & VALIDATIONS
 # =========================
@@ -69,7 +75,7 @@ def get_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",
-        password="root",
+        password="rootpassword",
         database="psdl"
     )
 
@@ -186,22 +192,76 @@ def show_application():
     canvas_container.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
-    labels = ["PAN", "Full Name", "DOB (DD/MM/YYYY)", "Age", "Dependents", "Loan Type", "Monthly Income", 
-              "Job Type", "Years of Employment", "Loan Amount", "Guarantor", "Collateral", "Bank Balance"]
+    labels = [
+    "PAN",
+    "Full Name",
+    "DOB (DD/MM/YYYY)",
+    "Status Account",
+    "Loan Amount",
+    "Bank Balance",
+    "Years of Employment",
+    "Payment to Income Ratio",
+    "Guarantor",
+    "Residence Since",
+    "Collateral",
+    "Other Commitments",
+    "Housing",
+    "Number of Credits",
+    "Job",
+    "Number of Guarantors",
+    "Dependencies"
+]
+
     
     card = create_card(scrollable_content)
     card.pack(pady=30, padx=50)
 
+    global fields
     fields = {}
     for i, label in enumerate(labels):
         tk.Label(card, text=label, bg="white", font=("Segoe UI", 10), fg=THEME["text_muted"]).grid(row=i, column=0, sticky="w", pady=8, padx=20)
         var = tk.StringVar()
         fields[label] = var
-        if label in ["Loan Type", "Job Type", "Guarantor", "Collateral"]:
-            w = ttk.Combobox(card, textvariable=var, width=28)
-            if label == "Loan Type": w['values'] = ["Home", "Personal", "Car", "Education"]
-            if label == "Job Type": w['values'] = ["Salaried", "Self-employed", "Business","Unemployed"]
-            if label in ["Guarantor", "Collateral"]: w['values'] = ["Yes", "No"]
+        if label == "Status Account":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["<0", "0-200", ">200"]
+
+        elif label == "Bank Balance":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["<100", "100-500", "500-1000", ">1000"]
+
+        elif label == "Years of Employment":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["<1", "1-4", "4-7", ">7"]
+
+        elif label == "Payment to Income Ratio":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = [1, 2, 3, 4]
+
+        elif label == "Guarantor":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["none", "guarantor"]
+
+        elif label == "Collateral":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["none", "car", "real estate"]
+
+        elif label == "Other Commitments":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["none", "bank", "stores"]
+
+        elif label == "Housing":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = ["own", "rent", "free"]
+
+        elif label == "Job":
+            w = ttk.Combobox(card, textvariable=var, width=28, state="readonly")
+            w['values'] = [
+                "Skilled Employee/Official",
+                "Unskilled - Resident",
+                "Management/Self-Employed/Highly Qualified"
+            ]
+
         else:
             w = tk.Entry(card, textvariable=var, width=31, relief="flat", highlightthickness=1, highlightbackground="#DCE6F5")
         w.grid(row=i, column=1, padx=20, pady=8)
@@ -216,15 +276,50 @@ def show_application():
 
         try:
             conn = get_connection(); cursor = conn.cursor()
-            query = "INSERT INTO applications(PAN, name, dob, application_date, loan_type, loan_amount) VALUES(%s,%s,%s,CURDATE(),%s,%s)"
-            cursor.execute(query, (pan, fields["Full Name"].get(), dob_obj.strftime("%Y-%m-%d"), fields["Loan Type"].get(), int(fields["Loan Amount"].get() or 0)))
+            query = """
+            INSERT INTO applications (
+            PAN, name, dob, application_date,
+            status_account, loan_amount, bank_balance,
+            years_employment, payment_to_income_ratio,
+            guarantor, residence_since, collateral,
+            other_commitments, housing, n_credits,
+            job, n_guarantors, dependencies
+            )
+            VALUES (%s,%s,%s,CURDATE(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """
+            values = (
+                pan,
+                fields["Full Name"].get(),
+                dob_obj.strftime("%Y-%m-%d"),
+                fields["Status Account"].get(),
+                int(fields["Loan Amount"].get()),
+                fields["Bank Balance"].get(),
+                fields["Years of Employment"].get(),
+                int(fields["Payment to Income Ratio"].get()),
+                fields["Guarantor"].get(),
+                int(fields["Residence Since"].get()),
+                fields["Collateral"].get(),
+                fields["Other Commitments"].get(),
+                fields["Housing"].get(),
+                int(fields["Number of Credits"].get()),
+                fields["Job"].get(),
+                int(fields["Number of Guarantors"].get()),
+                int(fields["Dependencies"].get())
+            )
+
+            cursor.execute(query, values)
             conn.commit()
+            application_id = cursor.lastrowid
             
-            # Logic: Send all fields to credit calculation
-            data = {k: v.get() for k, v in fields.items()}
-            #calling credit score method to get score and feedback
-            score, feedback = calculate_credit(data)
-            latest_data["score"], latest_data["feedback"] = score, feedback
+            data = get_data()
+
+            conn = create_connection()
+            score, decision, reasons = calculate_credit_score(data, conn, application_id)
+            conn.close()
+
+            latest_data["score"] = score
+            latest_data["feedback"] = f"{decision} → {reasons}"
+
             messagebox.showinfo("Success", "Application Saved!")
         except Exception as e: messagebox.showerror("DB Error", str(e))
         finally: conn.close()
